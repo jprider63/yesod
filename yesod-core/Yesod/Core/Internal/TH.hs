@@ -15,7 +15,8 @@ import Language.Haskell.TH.Syntax
 import qualified Network.Wai as W
 
 import Data.ByteString.Lazy.Char8 ()
-import Data.List (foldl')
+import Data.Char (isLower)
+import Data.List (foldl', uncons)
 #if __GLASGOW_HASKELL__ < 710
 import Control.Applicative ((<$>))
 #endif
@@ -105,10 +106,15 @@ mkYesodGeneral namestr args isSub f resS = do
     vns <- replicateM (arity - length mtys) $ newName "t"
         -- Base type (site type with variables)
     let (argtypes,cxt) = (\(ns,r,cs) -> (ns ++ fmap VarT r, cs)) $
-          foldr (\arg (xs,n:ns,cs) ->
+          foldr (\arg (xs,vns,cs) ->
                    case arg of
-                     Left  t  -> ( ConT (mkName t):xs, n:ns, cs )
-                     Right ts -> ( VarT n         :xs,   ns
+                     Left  t@(h:_) | isLower h -> 
+                                 ( VarT (mkName t):xs, vns, cs )
+                     Left  t  -> 
+                                 ( ConT (mkName t):xs, vns, cs )
+                     Right ts -> 
+                                 let (n, ns) = maybe (error "mkYesodGeneral: Should be unreachable.") id $ uncons vns in
+                                 ( VarT n : xs, ns
                                  , fmap (\t ->
 #if MIN_VERSION_template_haskell(2,10,0)
                                                AppT (ConT $ mkName t) (VarT n)
