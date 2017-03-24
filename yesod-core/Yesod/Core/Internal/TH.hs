@@ -81,7 +81,16 @@ mkYesodGeneral :: String                    -- ^ foundation type
                -> (Exp -> Q Exp)            -- ^ unwrap handler
                -> [ResourceTree String]
                -> Q([Dec],[Dec])
-mkYesodGeneral namestr args isSub f resS = do
+mkYesodGeneral = mkYesodGeneral' []
+
+mkYesodGeneral' :: Cxt                      -- ^ Appliction context. Used in RenderRoute, RouteAttrs, and ParseRoute instances.
+               -> String                    -- ^ foundation type
+               -> [Either String [String]]  -- ^ arguments for the type
+               -> Bool                      -- ^ is this a subsite
+               -> (Exp -> Q Exp)            -- ^ unwrap handler
+               -> [ResourceTree String]
+               -> Q([Dec],[Dec])
+mkYesodGeneral' appCxt namestr args isSub f resS = do
     mname <- lookupTypeName namestr
     arity <- case mname of
                Just name -> do
@@ -125,10 +134,10 @@ mkYesodGeneral namestr args isSub f resS = do
                  ) ([],vns,[]) args
         site = foldl' AppT (ConT name) argtypes
         res = map (fmap parseType) resS
-    renderRouteDec <- mkRenderRouteInstance site res
-    routeAttrsDec  <- mkRouteAttrsInstance site res
+    renderRouteDec <- mkRenderRouteInstance' appCxt site res
+    routeAttrsDec  <- mkRouteAttrsInstance' appCxt site res
     dispatchDec    <- mkDispatchInstance site cxt f res
-    parse <- mkParseRouteInstance site res
+    parse <- mkParseRouteInstance' appCxt site res
     let rname = mkName $ "resources" ++ namestr
     eres <- lift resS
     let resourcesDec =
