@@ -203,12 +203,13 @@ type FieldViewFunc m a
    -> [(Text, Text)] -- ^ Attributes
    -> Either Text a -- ^ Either (invalid text) or (legitimate result)
    -> Bool -- ^ Required?
-   -> WidgetFor (HandlerSite m) ()
+   -> (WidgetFor (HandlerSite m) (), [FieldView (HandlerSite m)])
 
 data Field m a = Field
-    { fieldParse :: [Text] -> [FileInfo] -> m (Either (SomeMessage (HandlerSite m)) (Maybe a))
+    { fieldParse :: [([Text], [FileInfo])] -> m (Either (SomeMessage (HandlerSite m)) (Maybe a))
     , fieldView :: FieldViewFunc m a
     , fieldEnctype :: Enctype
+    , fieldNames :: Text -> [Text]
     }
 
 data FormMessage = MsgInvalidInteger Text

@@ -58,7 +58,6 @@ module Yesod.Form.Functions
 import Yesod.Form.Types
 import Data.Text (Text, pack)
 import qualified Data.Text as T
-import Control.Arrow (second)
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.RWS (ask, get, put, runRWST, tell, evalRWST, local, mapRWST)
 import Control.Monad.Trans.Writer (runWriterT, writer)
@@ -160,11 +159,11 @@ wFormToMForm = mapRWST (fmap group . runWriterT)
 --
 -- @since 1.4.14
 mFormToWForm :: (MonadHandler m, HandlerSite m ~ site)
-             => MForm m (a, FieldView site)  -- ^ input form
-             -> WForm m a                    -- ^ output form
+             => MForm m (a, [FieldView site])  -- ^ input form
+             -> WForm m a                      -- ^ output form
 mFormToWForm = mapRWST $ \f -> do
-  ((a, view), ints, enctype) <- lift f
-  writer ((a, ints, enctype), [view])
+  ((a, views), ints, enctype) <- lift f
+  writer ((a, ints, enctype), views)
 
 -- | Converts a form field into monadic form. This field requires a value
 -- and will return 'FormFailure' if left empty.
@@ -172,7 +171,7 @@ mreq :: (RenderMessage site FormMessage, HandlerSite m ~ site, MonadHandler m)
      => Field m a           -- ^ form field
      -> FieldSettings site  -- ^ settings for this field
      -> Maybe a             -- ^ optional default value
-     -> MForm m (FormResult a, FieldView site)
+     -> MForm m (FormResult a, [FieldView site])
 mreq field fs mdef = mhelper field fs mdef (\m l -> FormFailure [renderMessage m l MsgValueRequired]) FormSuccess True
 
 -- | Converts a form field into monadic form. This field is optional, i.e.
@@ -182,7 +181,7 @@ mopt :: (site ~ HandlerSite m, MonadHandler m)
      => Field m a
      -> FieldSettings site
      -> Maybe (Maybe a)
-     -> MForm m (FormResult (Maybe a), FieldView site)
+     -> MForm m (FormResult (Maybe a), [FieldView site])
 mopt field fs mdef = mhelper field fs (join mdef) (const $ const $ FormSuccess Nothing) (FormSuccess . Just) False
 
 mhelper :: (site ~ HandlerSite m, MonadHandler m)
@@ -192,7 +191,7 @@ mhelper :: (site ~ HandlerSite m, MonadHandler m)
         -> (site -> [Text] -> FormResult b) -- ^ on missing
         -> (a -> FormResult b) -- ^ on success
         -> Bool -- ^ is it required?
-        -> MForm m (FormResult b, FieldView site)
+        -> MForm m (FormResult b, [FieldView site])
 
 mhelper Field {..} FieldSettings {..} mdef onMissing onFound isReq = do
     tell fieldEnctype
@@ -206,26 +205,29 @@ mhelper Field {..} FieldSettings {..} mdef onMissing onFound isReq = do
             Nothing -> return (FormMissing, maybe (Left "") Right mdef)
             Just p -> do
                 mfs <- askFiles
-                let mvals = fromMaybe [] $ Map.lookup name p
-                    files = fromMaybe [] $ mfs >>= Map.lookup name
-                emx <- lift $ fieldParse mvals files
+                let names = fieldNames name
+                    mvals n = fromMaybe [] $ Map.lookup n p
+                    files n = fromMaybe [] $ mfs >>= Map.lookup n
+                    vals = map (\n -> (mvals n, files n)) names
+                emx <- lift $ fieldParse vals
                 return $ case emx of
-                    Left (SomeMessage e) -> (FormFailure [renderMessage site langs e], maybe (Left "") Left (listToMaybe mvals))
+                    Left (SomeMessage e) -> (FormFailure [renderMessage site langs e], maybe (Left "") Left (join ((listToMaybe . fst) <$> listToMaybe vals)))
                     Right mx ->
                         case mx of
                             Nothing -> (onMissing site langs, Left "")
                             Just x -> (onFound x, Right x)
-    return (res, FieldView
+    let (view,views) = fieldView theId name fsAttrs val isReq
+    return (res, (FieldView
         { fvLabel = toHtml $ mr2 fsLabel
         , fvTooltip = fmap toHtml $ fmap mr2 fsTooltip
         , fvId = theId
-        , fvInput = fieldView theId name fsAttrs val isReq
+        , fvInput = view
         , fvErrors =
             case res of
                 FormFailure [e] -> Just $ toHtml e
                 _ -> Nothing
         , fvRequired = isReq
-        })
+        }):views)
 
 -- | Applicative equivalent of 'mreq'.
 areq :: (RenderMessage site FormMessage, HandlerSite m ~ site, MonadHandler m)
@@ -233,7 +235,7 @@ areq :: (RenderMessage site FormMessage, HandlerSite m ~ site, MonadHandler m)
      -> FieldSettings site
      -> Maybe a
      -> AForm m a
-areq a b = formToAForm . liftM (second return) . mreq a b
+areq a b = formToAForm . mreq a b
 
 -- | Applicative equivalent of 'mopt'.
 aopt :: MonadHandler m
@@ -241,7 +243,7 @@ aopt :: MonadHandler m
      -> FieldSettings (HandlerSite m)
      -> Maybe (Maybe a)
      -> AForm m (Maybe a)
-aopt a b = formToAForm . liftM (second return) . mopt a b
+aopt a b = formToAForm . mopt a b
 
 runFormGeneric :: Monad m
                => MForm m a
@@ -550,8 +552,8 @@ checkMMap :: (Monad m, RenderMessage (HandlerSite m) msg)
           -> Field m a
           -> Field m b
 checkMMap f inv field = field
-    { fieldParse = \ts fs -> do
-        e1 <- fieldParse field ts fs
+    { fieldParse = \ts -> do
+        e1 <- fieldParse field ts
         case e1 of
             Left msg -> return $ Left msg
             Right Nothing -> return $ Right Nothing
@@ -562,9 +564,9 @@ checkMMap f inv field = field
 -- | Allows you to overwrite the error message on parse error.
 customErrorMessage :: Monad m => SomeMessage (HandlerSite m) -> Field m a -> Field m a
 customErrorMessage msg field = field
-    { fieldParse = \ts fs ->
+    { fieldParse = \ts ->
         liftM (either (const $ Left msg) Right)
-      $ fieldParse field ts fs
+      $ fieldParse field ts
     }
 
 -- | Generate a 'FieldSettings' from the given label.
@@ -614,10 +616,10 @@ parseHelperGen f (x:_) _ = return $ either (Left . SomeMessage) (Right . Just) $
 convertField :: (Functor m)
              => (a -> b) -> (b -> a)
              -> Field m a -> Field m b
-convertField to from (Field fParse fView fEnctype) = let
-  fParse' ts = fmap (fmap (fmap to)) . fParse ts
+convertField to from (Field fParse fView fEnctype fNames) = let
+  fParse' = fmap (fmap (fmap to)) . fParse
   fView' ti tn at ei = fView ti tn at (fmap from ei)
-  in Field fParse' fView' fEnctype
+  in Field fParse' fView' fEnctype fNames
 
 -- | Removes a CSS class from the 'fsAttrs' in a 'FieldSettings'.
 --

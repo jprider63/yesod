@@ -47,9 +47,10 @@ ireq :: (Monad m, RenderMessage (HandlerSite m) FormMessage)
      -> Text -- ^ name of the field
      -> FormInput m a
 ireq field name = FormInput $ \m l env fenv -> do
-      let filteredEnv = fromMaybe [] $ Map.lookup name env
-          filteredFEnv = fromMaybe [] $ Map.lookup name fenv
-      emx <- fieldParse field filteredEnv filteredFEnv
+      let names = fieldNames field name
+          filteredEnv n = fromMaybe [] $ Map.lookup n env
+          filteredFEnv n = fromMaybe [] $ Map.lookup n fenv
+      emx <- fieldParse field $ map (\n -> (filteredEnv n, filteredFEnv n)) names
       return $ case emx of
           Left (SomeMessage e) -> Left $ (:) $ renderMessage m l e
           Right Nothing -> Left $ (:) $ renderMessage m l $ MsgInputNotFound name
@@ -59,9 +60,10 @@ ireq field name = FormInput $ \m l env fenv -> do
 -- the value is present but does not parse correctly, the form will still fail.
 iopt :: Monad m => Field m a -> Text -> FormInput m (Maybe a)
 iopt field name = FormInput $ \m l env fenv -> do
-      let filteredEnv = fromMaybe [] $ Map.lookup name env
-          filteredFEnv = fromMaybe [] $ Map.lookup name fenv
-      emx <- fieldParse field filteredEnv filteredFEnv
+      let names = fieldNames field name
+          filteredEnv n = fromMaybe [] $ Map.lookup n env
+          filteredFEnv n = fromMaybe [] $ Map.lookup n fenv
+      emx <- fieldParse field $ map (\n -> (filteredEnv n, filteredFEnv n)) names
       return $ case emx of
         Left (SomeMessage e) -> Left $ (:) $ renderMessage m l e
         Right x -> Right x

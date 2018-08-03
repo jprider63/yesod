@@ -64,12 +64,12 @@ jqueryDatePickerDayField = flip jqueryDayField' "text"
 
 jqueryDayField' :: (RenderMessage site FormMessage, YesodJquery site) => JqueryDaySettings -> Text -> Field (HandlerFor site) Day
 jqueryDayField' jds inputType = Field
-    { fieldParse = parseHelper $ maybe
+    { fieldParse = fieldParseSingle $ parseHelper $ maybe
                   (Left MsgInvalidDay)
                   Right
               . readMay
               . unpack
-    , fieldView = \theId name attrs val isReq -> do
+    , fieldView = \theId name attrs val isReq -> fieldWidgetToView $ do
         toWidget [shamlet|
 $newline never
 <input id="#{theId}" name="#{name}" *{attrs} type="#{inputType}" :isReq:required="" value="#{showVal val}">
@@ -92,6 +92,7 @@ $(function(){
 });
 |]
     , fieldEnctype = UrlEncoded
+    , fieldNames = return
     }
   where
     showVal = either id (pack . show)
@@ -115,8 +116,8 @@ jqueryAutocompleteField' :: (RenderMessage site FormMessage, YesodJquery site)
                          -> Route site
                          -> Field (HandlerFor site) Text
 jqueryAutocompleteField' minLen src = Field
-    { fieldParse = parseHelper $ Right
-    , fieldView = \theId name attrs val isReq -> do
+    { fieldParse = fieldParseSingle $ parseHelper $ Right
+    , fieldView = \theId name attrs val isReq -> fieldWidgetToView $ do
         toWidget [shamlet|
 $newline never
 <input id="#{theId}" name="#{name}" *{attrs} type="text" :isReq:required="" value="#{either id id val}" .autocomplete>
@@ -128,6 +129,7 @@ $newline never
 $(function(){$("##{rawJS theId}").autocomplete({source:"@{src}",minLength:#{toJSON minLen}})});
 |]
     , fieldEnctype = UrlEncoded
+    , fieldNames = return
     }
 
 addScript' :: (HandlerSite m ~ site, MonadWidget m) => (site -> Either (Route site) Text) -> m ()

@@ -58,6 +58,8 @@ module Yesod.Form.Fields
     , optionsPersistKey
     , optionsPairs
     , optionsEnum
+    , fieldParseSingle
+    , fieldWidgetToView
     ) where
 
 import Yesod.Form.Types
@@ -119,16 +121,17 @@ defaultFormMessage = englishFormMessage
 -- | Creates a input with @type="number"@ and @step=1@.
 intField :: (Monad m, Integral i, RenderMessage (HandlerSite m) FormMessage) => Field m i
 intField = Field
-    { fieldParse = parseHelper $ \s ->
+    { fieldParse = fieldParseSingle $ parseHelper $ \s ->
         case Data.Text.Read.signed Data.Text.Read.decimal s of
             Right (a, "") -> Right a
             _ -> Left $ MsgInvalidInteger s
 
-    , fieldView = \theId name attrs val isReq -> toWidget [hamlet|
+    , fieldView = \theId name attrs val isReq -> fieldWidgetToView $ toWidget [hamlet|
 $newline never
 <input id="#{theId}" name="#{name}" *{attrs} type="number" step=1 :isReq:required="" value="#{showVal val}">
 |]
     , fieldEnctype = UrlEncoded
+    , fieldNames = return
     }
   where
     showVal = either id (pack . showI)
@@ -137,16 +140,17 @@ $newline never
 -- | Creates a input with @type="number"@ and @step=any@.
 doubleField :: Monad m => RenderMessage (HandlerSite m) FormMessage => Field m Double
 doubleField = Field
-    { fieldParse = parseHelper $ \s ->
+    { fieldParse = fieldParseSingle $ parseHelper $ \s ->
         case Data.Text.Read.double (prependZero s) of
             Right (a, "") -> Right a
             _ -> Left $ MsgInvalidNumber s
 
-    , fieldView = \theId name attrs val isReq -> toWidget [hamlet|
+    , fieldView = \theId name attrs val isReq -> fieldWidgetToView $ toWidget [hamlet|
 $newline never
 <input id="#{theId}" name="#{name}" *{attrs} type="number" step=any :isReq:required="" value="#{showVal val}">
 |]
     , fieldEnctype = UrlEncoded
+    , fieldNames = return
     }
   where showVal = either id (pack . show)
 
@@ -155,12 +159,13 @@ $newline never
 -- Add the @time@ package and import the "Data.Time.Calendar" module to use this function.
 dayField :: Monad m => RenderMessage (HandlerSite m) FormMessage => Field m Day
 dayField = Field
-    { fieldParse = parseHelper $ parseDate . unpack
-    , fieldView = \theId name attrs val isReq -> toWidget [hamlet|
+    { fieldParse = fieldParseSingle $ parseHelper $ parseDate . unpack
+    , fieldView = \theId name attrs val isReq -> fieldWidgetToView $ toWidget [hamlet|
 $newline never
 <input id="#{theId}" name="#{name}" *{attrs} type="date" :isReq:required="" value="#{showVal val}">
 |]
     , fieldEnctype = UrlEncoded
+    , fieldNames = return
     }
   where showVal = either id (pack . show)
 
@@ -188,12 +193,13 @@ timeFieldTypeText = timeFieldOfType "text"
 
 timeFieldOfType :: Monad m => RenderMessage (HandlerSite m) FormMessage => Text -> Field m TimeOfDay
 timeFieldOfType inputType = Field
-    { fieldParse = parseHelper parseTime
-    , fieldView = \theId name attrs val isReq -> toWidget [hamlet|
+    { fieldParse = fieldParseSingle $ parseHelper parseTime
+    , fieldView = \theId name attrs val isReq -> fieldWidgetToView $ toWidget [hamlet|
 $newline never
 <input id="#{theId}" name="#{name}" *{attrs} type="#{inputType}" :isReq:required="" value="#{showVal val}">
 |]
     , fieldEnctype = UrlEncoded
+    , fieldNames = return
     }
   where
     showVal = either id (pack . show . roundFullSeconds)
@@ -205,12 +211,13 @@ $newline never
 -- | Creates a @\<textarea>@ tag whose input is sanitized to prevent XSS attacks and is validated for having balanced tags.
 htmlField :: Monad m => RenderMessage (HandlerSite m) FormMessage => Field m Html
 htmlField = Field
-    { fieldParse = parseHelper $ Right . preEscapedText . sanitizeBalance
-    , fieldView = \theId name attrs val isReq -> toWidget [hamlet|
+    { fieldParse = fieldParseSingle $ parseHelper $ Right . preEscapedText . sanitizeBalance
+    , fieldView = \theId name attrs val isReq -> fieldWidgetToView $ toWidget [hamlet|
 $newline never
 <textarea :isReq:required="" id="#{theId}" name="#{name}" *{attrs}>#{showVal val}
 |]
     , fieldEnctype = UrlEncoded
+    , fieldNames = return
     }
   where showVal = either id (pack . renderHtml)
 
@@ -241,46 +248,50 @@ instance ToHtml Textarea where
 -- | Creates a @\<textarea>@ tag whose returned value is wrapped in a 'Textarea'; see 'Textarea' for details.
 textareaField :: Monad m => RenderMessage (HandlerSite m) FormMessage => Field m Textarea
 textareaField = Field
-    { fieldParse = parseHelper $ Right . Textarea
-    , fieldView = \theId name attrs val isReq -> toWidget [hamlet|
+    { fieldParse = fieldParseSingle $ parseHelper $ Right . Textarea
+    , fieldView = \theId name attrs val isReq -> fieldWidgetToView $ toWidget [hamlet|
 $newline never
 <textarea id="#{theId}" name="#{name}" :isReq:required="" *{attrs}>#{either id unTextarea val}
 |]
     , fieldEnctype = UrlEncoded
+    , fieldNames = return
     }
 
 -- | Creates an input with @type="hidden"@; you can use this to store information in a form that users shouldn't see (for example, Yesod stores CSRF tokens in a hidden field).
 hiddenField :: (Monad m, PathPiece p, RenderMessage (HandlerSite m) FormMessage)
             => Field m p
 hiddenField = Field
-    { fieldParse = parseHelper $ maybe (Left MsgValueRequired) Right . fromPathPiece
-    , fieldView = \theId name attrs val _isReq -> toWidget [hamlet|
+    { fieldParse = fieldParseSingle $ parseHelper $ maybe (Left MsgValueRequired) Right . fromPathPiece
+    , fieldView = \theId name attrs val _isReq -> fieldWidgetToView $ toWidget [hamlet|
 $newline never
 <input type="hidden" id="#{theId}" name="#{name}" *{attrs} value="#{either id toPathPiece val}">
 |]
     , fieldEnctype = UrlEncoded
+    , fieldNames = return
     }
 
 -- | Creates a input with @type="text"@.
 textField :: Monad m => RenderMessage (HandlerSite m) FormMessage => Field m Text
 textField = Field
-    { fieldParse = parseHelper $ Right
-    , fieldView = \theId name attrs val isReq ->
+    { fieldParse = fieldParseSingle $ parseHelper $ Right
+    , fieldView = \theId name attrs val isReq -> fieldWidgetToView
         [whamlet|
 $newline never
 <input id="#{theId}" name="#{name}" *{attrs} type="text" :isReq:required value="#{either id id val}">
 |]
     , fieldEnctype = UrlEncoded
+    , fieldNames = return
     }
 -- | Creates an input with @type="password"@.
 passwordField :: Monad m => RenderMessage (HandlerSite m) FormMessage => Field m Text
 passwordField = Field
-    { fieldParse = parseHelper $ Right
-    , fieldView = \theId name attrs _ isReq -> toWidget [hamlet|
+    { fieldParse = fieldParseSingle $ parseHelper $ Right
+    , fieldView = \theId name attrs _ isReq -> fieldWidgetToView $ toWidget [hamlet|
 $newline never
 <input id="#{theId}" name="#{name}" *{attrs} type="password" :isReq:required="">
 |]
     , fieldEnctype = UrlEncoded
+    , fieldNames = return
     }
 
 readMay :: Read a => String -> Maybe a
@@ -348,16 +359,17 @@ timeParser = do
 -- | Creates an input with @type="email"@. Yesod will validate the email's correctness according to RFC5322 and canonicalize it by removing comments and whitespace (see "Text.Email.Validate").
 emailField :: Monad m => RenderMessage (HandlerSite m) FormMessage => Field m Text
 emailField = Field
-    { fieldParse = parseHelper $
+    { fieldParse = fieldParseSingle $ parseHelper $
         \s ->
             case Email.canonicalizeEmail $ encodeUtf8 s of
                 Just e -> Right $ decodeUtf8With lenientDecode e
                 Nothing -> Left $ MsgInvalidEmail s
-    , fieldView = \theId name attrs val isReq -> toWidget [hamlet|
+    , fieldView = \theId name attrs val isReq -> fieldWidgetToView $ toWidget [hamlet|
 $newline never
 <input id="#{theId}" name="#{name}" *{attrs} type="email" :isReq:required="" value="#{either id id val}">
 |]
     , fieldEnctype = UrlEncoded
+    , fieldNames = return
     }
 
 -- | Creates an input with @type="email"@ with the <http://w3c.github.io/html/sec-forms.html#the-multiple-attribute multiple> attribute; browsers might implement this as taking a comma separated list of emails. Each email address is validated as described in 'emailField'.
@@ -365,17 +377,18 @@ $newline never
 -- Since 1.3.7
 multiEmailField :: Monad m => RenderMessage (HandlerSite m) FormMessage => Field m [Text]
 multiEmailField = Field
-    { fieldParse = parseHelper $
+    { fieldParse = fieldParseSingle $ parseHelper $
         \s ->
             let addrs = map validate $ splitOn "," s
             in case partitionEithers addrs of
                 ([], good) -> Right good
                 (bad, _) -> Left $ MsgInvalidEmail $ cat bad
-    , fieldView = \theId name attrs val isReq -> toWidget [hamlet|
+    , fieldView = \theId name attrs val isReq -> fieldWidgetToView $ toWidget [hamlet|
 $newline never
 <input id="#{theId}" name="#{name}" *{attrs} type="email" multiple :isReq:required="" value="#{either id cat val}">
 |]
     , fieldEnctype = UrlEncoded
+    , fieldNames = return
     }
     where
         -- report offending address along with error
@@ -389,8 +402,8 @@ type AutoFocus = Bool
 -- | Creates an input with @type="search"@. For <http://caniuse.com/#search=autofocus browsers without autofocus support>, a JS fallback is used if @AutoFocus@ is true.
 searchField :: Monad m => RenderMessage (HandlerSite m) FormMessage => AutoFocus -> Field m Text
 searchField autoFocus = Field
-    { fieldParse = parseHelper Right
-    , fieldView = \theId name attrs val isReq -> do
+    { fieldParse = fieldParseSingle $ parseHelper Right
+    , fieldView = \theId name attrs val isReq -> fieldWidgetToView $ do
         [whamlet|
 $newline never
 <input id="#{theId}" name="#{name}" *{attrs} type="search" :isReq:required="" :autoFocus:autofocus="" value="#{either id id val}">
@@ -406,17 +419,19 @@ $newline never
               -webkit-appearance: textfield
             |]
     , fieldEnctype = UrlEncoded
+    , fieldNames = return
     }
 -- | Creates an input with @type="url"@, validating the URL according to RFC3986.
 urlField :: Monad m => RenderMessage (HandlerSite m) FormMessage => Field m Text
 urlField = Field
-    { fieldParse = parseHelper $ \s ->
+    { fieldParse = fieldParseSingle $ parseHelper $ \s ->
         case parseURI $ unpack s of
             Nothing -> Left $ MsgInvalidUrl s
             Just _ -> Right s
-    , fieldView = \theId name attrs val isReq ->
+    , fieldView = \theId name attrs val isReq -> fieldWidgetToView 
         [whamlet|<input ##{theId} name=#{name} *{attrs} type=url :isReq:required value=#{either id id val}>|]
     , fieldEnctype = UrlEncoded
+    , fieldNames = return
     }
 
 -- | Creates a @\<select>@ tag for selecting one option. Example usage:
@@ -458,7 +473,7 @@ multiSelectField :: Eq a
                  => HandlerFor site (OptionList a)
                  -> Field (HandlerFor site) [a]
 multiSelectField ioptlist =
-    Field parse view UrlEncoded
+    Field (fieldParseSingle parse) view UrlEncoded return
   where
     parse [] _ = return $ Right Nothing
     parse optlist _ = do
@@ -467,7 +482,7 @@ multiSelectField ioptlist =
              Nothing -> return $ Left "Error parsing values"
              Just res -> return $ Right $ Just res
 
-    view theId name attrs val isReq = do
+    view theId name attrs val isReq = fieldWidgetToView $ do
         opts <- fmap olOptions $ handlerToWidget ioptlist
         let selOpts = map (id &&& (optselected val)) opts
         [whamlet|
@@ -495,8 +510,8 @@ checkboxesField :: Eq a
                  => HandlerFor site (OptionList a)
                  -> Field (HandlerFor site) [a]
 checkboxesField ioptlist = (multiSelectField ioptlist)
-    { fieldView =
-        \theId name attrs val _isReq -> do
+    { fieldView = 
+        \theId name attrs val _isReq -> fieldWidgetToView $ do
             opts <- fmap olOptions $ handlerToWidget ioptlist
             let optselected (Left _) _ = False
                 optselected (Right vals) opt = (optionInternalValue opt) `elem` vals
@@ -541,8 +556,8 @@ $newline never
 -- (Exact label titles will depend on localization).
 boolField :: Monad m => RenderMessage (HandlerSite m) FormMessage => Field m Bool
 boolField = Field
-      { fieldParse = \e _ -> return $ boolParser e
-      , fieldView = \theId name attrs val isReq -> [whamlet|
+      { fieldParse = fieldParseSingle $ \e _ -> return $ boolParser e
+      , fieldView = \theId name attrs val isReq -> fieldWidgetToView [whamlet|
 $newline never
   $if not isReq
       <input id=#{theId}-none *{attrs} type=radio name=#{name} value=none checked>
@@ -556,6 +571,7 @@ $newline never
 <label for=#{theId}-no>_{MsgBoolNo}
 |]
     , fieldEnctype = UrlEncoded
+    , fieldNames = return
     }
   where
     boolParser [] = Right Nothing
@@ -580,12 +596,13 @@ $newline never
 --
 checkBoxField :: Monad m => Field m Bool
 checkBoxField = Field
-    { fieldParse = \e _ -> return $ checkBoxParser e
-    , fieldView  = \theId name attrs val _ -> [whamlet|
+    { fieldParse = fieldParseSingle $ \e _ -> return $ checkBoxParser e
+    , fieldView  = \theId name attrs val _ -> fieldWidgetToView [whamlet|
 $newline never
 <input id=#{theId} *{attrs} type=checkbox name=#{name} value=yes :showVal id val:checked>
 |]
     , fieldEnctype = UrlEncoded
+    , fieldNames = return
     }
 
     where
@@ -742,10 +759,10 @@ selectFieldHelper
         -> HandlerFor site (OptionList a)
         -> Field (HandlerFor site) a
 selectFieldHelper outside onOpt inside opts' = Field
-    { fieldParse = \x _ -> do
+    { fieldParse = fieldParseSingle $ \x _ -> do
         opts <- opts'
         return $ selectParser opts x
-    , fieldView = \theId name attrs val isReq -> do
+    , fieldView = \theId name attrs val isReq -> fieldWidgetToView $ do
         opts <- fmap olOptions $ handlerToWidget opts'
         outside theId name attrs $ do
             unless isReq $ onOpt theId name $ not $ render opts val `elem` map optionExternalValue opts
@@ -757,6 +774,7 @@ selectFieldHelper outside onOpt inside opts' = Field
                 ((render opts val) == optionExternalValue opt)
                 (optionDisplay opt)
     , fieldEnctype = UrlEncoded
+    , fieldNames = return
     }
   where
     render _ (Left x) = x
@@ -773,15 +791,17 @@ selectFieldHelper outside onOpt inside opts' = Field
 fileField :: Monad m
           => Field m FileInfo
 fileField = Field
-    { fieldParse = \_ files -> return $
+    { fieldParse = fieldParseSingle $ \_ files -> return $
         case files of
             [] -> Right Nothing
             file:_ -> Right $ Just file
-    , fieldView = \id' name attrs _ isReq -> toWidget [hamlet|
+    , fieldView = \id' name attrs _ isReq -> fieldWidgetToView $ toWidget [hamlet|
             <input id=#{id'} name=#{name} *{attrs} type=file :isReq:required>
         |]
     , fieldEnctype = Multipart
+    , fieldNames = return
     }
+
 
 fileAFormReq :: (MonadHandler m, RenderMessage (HandlerSite m) FormMessage)
              => FieldSettings (HandlerSite m) -> AForm m FileInfo
@@ -872,3 +892,19 @@ prependZero t0 = if T.null t1
 -- The basic datastructure used is an 'Option', which combines a user-facing display value, the internal Haskell value being selected, and an external 'Text' stored as the @value@ in the form (used to map back to the internal value). A list of these, together with a function mapping from an external value back to a Haskell value, form an 'OptionList', which several of these functions take as an argument.
 -- 
 -- Typically, you won't need to create an 'OptionList' directly and can instead make one with functions like 'optionsPairs' or 'optionsEnum'. Alternatively, you can use functions like 'selectFieldList', which use their @[(msg, a)]@ parameter to create an 'OptionList' themselves.
+
+
+
+-- Helper functions to migrate to field with multiple views and names.
+
+-- JP: Maybe include with parseHelper instead?
+-- Improve these types.
+fieldParseSingle :: Monad m =>
+    (t1 -> t2 -> m (Either a1 (Maybe a2)))
+    -> [(t1, t2)] -> m (Either a1 (Maybe a2))
+fieldParseSingle f ((v, fi):_) = f v fi
+fieldParseSingle _ _ = return $ Right Nothing
+
+fieldWidgetToView :: a -> (a, [b])
+fieldWidgetToView w = (w, [])
+
